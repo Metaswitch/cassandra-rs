@@ -1,5 +1,5 @@
 use crate::cassandra::error::*;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 
 use crate::cassandra_sys::cass_uuid_from_string_n;
 use crate::cassandra_sys::cass_uuid_gen_free;
@@ -31,10 +31,13 @@ const CASS_UUID_STRING_LENGTH: usize = 37;
 /// Version 1 (time-based) or version 4 (random) UUID.
 pub struct Uuid(_Uuid);
 
-impl Protected<_Uuid> for Uuid {
+impl ProtectedInner<_Uuid> for Uuid {
     fn inner(&self) -> _Uuid {
         self.0
     }
+}
+
+impl Protected<_Uuid> for Uuid {
     fn build(inner: _Uuid) -> Self {
         Uuid(inner)
     }

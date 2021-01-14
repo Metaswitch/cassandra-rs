@@ -1,11 +1,21 @@
 //! Assorted helper functions used throughout the code.
 
+use crate::Session;
+
+pub(crate) trait ProtectedInner<T> {
+    fn inner(&self) -> T;
+}
+
 /// Interconvert between external and internal representation.
 /// We can freely do this within this crate, but must not allow
 /// our clients to do this.
-pub(crate) trait Protected<T> {
+pub(crate) trait Protected<T>: ProtectedInner<T> {
     fn build(inner: T) -> Self;
-    fn inner(&self) -> T;
+}
+
+pub(crate) trait ProtectedWithSession<T>: ProtectedInner<T> {
+    fn build(inner: T, session: Session) -> Self;
+    fn session(&self) -> &Session;
 }
 
 /// Enhance a nullary enum as follows:
@@ -69,16 +79,19 @@ macro_rules! enhance_nullary_enum {
             }
         }
 
+        impl $crate::cassandra::util::ProtectedInner<$that_name> for $this_name {
+            fn inner(&self) -> $that_name {
+                match *self {
+                    $( $this_name::$this => $that_name::$that ),*
+                }
+            }
+        }
+
         impl $crate::cassandra::util::Protected<$that_name> for $this_name {
             fn build(inner: $that_name) -> Self {
                 match inner {
                     $( $that_name::$that => $this_name::$this, )*
                     $($( $that_name::$not_that => panic!(stringify!(Unexpected variant $that_name::$not_that)), )*)*
-                }
-            }
-            fn inner(&self) -> $that_name {
-                match *self {
-                    $( $this_name::$this => $that_name::$that ),*
                 }
             }
         }

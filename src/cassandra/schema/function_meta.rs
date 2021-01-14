@@ -1,7 +1,7 @@
 use crate::cassandra::data_type::ConstDataType;
 use crate::cassandra::error::*;
 use crate::cassandra::iterator::FieldIterator;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra::value::Value;
 
 use crate::cassandra_sys::cass_function_meta_argument;
@@ -26,10 +26,13 @@ use std::{mem, slice, str};
 #[derive(Debug)]
 pub struct FunctionMeta(*const _CassFunctionMeta);
 
-impl Protected<*const _CassFunctionMeta> for FunctionMeta {
+impl ProtectedInner<*const _CassFunctionMeta> for FunctionMeta {
     fn inner(&self) -> *const _CassFunctionMeta {
         self.0
     }
+}
+
+impl Protected<*const _CassFunctionMeta> for FunctionMeta {
     fn build(inner: *const _CassFunctionMeta) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

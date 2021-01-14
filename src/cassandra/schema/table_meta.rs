@@ -2,7 +2,7 @@ use crate::cassandra::iterator::ColumnIterator;
 use crate::cassandra::iterator::FieldIterator;
 
 use crate::cassandra::schema::column_meta::ColumnMeta;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra::value::Value;
 use crate::cassandra_sys::cass_iterator_columns_from_table_meta;
 use crate::cassandra_sys::cass_iterator_fields_from_table_meta;
@@ -25,10 +25,13 @@ use std::str;
 #[derive(Debug)]
 pub struct TableMeta(*const _CassTableMeta);
 
-impl Protected<*const _CassTableMeta> for TableMeta {
+impl ProtectedInner<*const _CassTableMeta> for TableMeta {
     fn inner(&self) -> *const _CassTableMeta {
         self.0
     }
+}
+
+impl Protected<*const _CassTableMeta> for TableMeta {
     fn build(inner: *const _CassTableMeta) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

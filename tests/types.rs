@@ -2,18 +2,19 @@ mod help;
 
 use cassandra_cpp::*;
 
-#[test]
-fn test_using_consistency() {
-    let mut s = stmt!("select 1+1;");
-    s.set_consistency(Consistency::LOCAL_ONE).unwrap();
-    s.set_serial_consistency(Consistency::SERIAL).unwrap();
+#[tokio::test]
+async fn test_using_consistency() -> Result<()> {
+    let session = help::create_test_session().await;
+    let mut statement = session.statement("select 1 + 1;");
+    statement.set_consistency(Consistency::LOCAL_ONE)?;
+    statement.set_serial_consistency(Consistency::SERIAL)?;
 
-    let mut batch = Batch::new(BatchType::LOGGED);
-    batch.add_statement(&s).unwrap();
-    batch.set_consistency(Consistency::TWO).unwrap();
-    batch
-        .set_serial_consistency(Consistency::LOCAL_SERIAL)
-        .unwrap();
+    let mut batch = session.batch(BatchType::LOGGED);
+    batch.add_statement(statement)?;
+    batch.set_consistency(Consistency::TWO)?;
+    batch.set_serial_consistency(Consistency::LOCAL_SERIAL)?;
+
+    Ok(())
 }
 
 #[test]

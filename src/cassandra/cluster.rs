@@ -4,7 +4,7 @@ use crate::cassandra::policy::retry::RetryPolicy;
 use crate::cassandra::session::Session;
 use crate::cassandra::ssl::Ssl;
 use crate::cassandra::time::TimestampGen;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 
 use crate::cassandra_sys::cass_cluster_free;
 use crate::cassandra_sys::cass_cluster_new;
@@ -46,6 +46,7 @@ use crate::cassandra_sys::cass_cluster_set_write_bytes_low_water_mark;
 use crate::cassandra_sys::cass_false;
 use crate::cassandra_sys::cass_future_error_code;
 use crate::cassandra_sys::cass_session_connect;
+use crate::cassandra_sys::cass_session_connect_keyspace_n;
 use crate::cassandra_sys::cass_session_new;
 use crate::cassandra_sys::cass_true;
 use crate::cassandra_sys::CassCluster as _Cluster;
@@ -72,10 +73,12 @@ pub type CqlProtocol = i32;
 ///
 /// # Examples
 /// ```
+/// # async fn test() {
 /// use cassandra_cpp::Cluster;
 /// let mut cluster = Cluster::default();
 /// cluster.set_contact_points("127.0.0.1").unwrap();
-/// let _session = cluster.connect().unwrap();
+/// let session = cluster.connect().await.unwrap();
+/// # }
 /// ```
 #[derive(Debug)]
 pub struct Cluster(pub *mut _Cluster);
@@ -91,10 +94,13 @@ impl Drop for Cluster {
     }
 }
 
-impl Protected<*mut _Cluster> for Cluster {
+impl ProtectedInner<*mut _Cluster> for Cluster {
     fn inner(&self) -> *mut _Cluster {
         self.0
     }
+}
+
+impl Protected<*mut _Cluster> for Cluster {
     fn build(inner: *mut _Cluster) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
@@ -150,31 +156,37 @@ impl Cluster {
     }
 
     /// Sets the SSL context and enables SSL
-    pub fn set_ssl(&mut self, ssl: &mut Ssl) -> &Self {
+    pub fn set_ssl(&mut self, ssl: Ssl) -> &Self {
         unsafe {
             cass_cluster_set_ssl(self.0, ssl.inner());
             self
         }
     }
 
-    /// Performs a blocking call to connect to Cassandra cluster
-    pub fn connect(&mut self) -> Result<Session> {
-        unsafe {
-            let session = Session(cass_session_new());
-            let connect_future = <CassFuture<()>>::build(cass_session_connect(session.0, self.0));
-            connect_future.wait()?;
-            Ok(session)
-        }
+    /// Connects to the cassandra cluster
+    pub async fn connect(&mut self) -> Result<Session> {
+        let session = Session::new();
+        let connect_future = {
+            let connect = unsafe { cass_session_connect(session.inner(), self.0) };
+            CassFuture::build(session, connect)
+        };
+        connect_future.await
     }
 
-    /// Asynchronously connects to the cassandra cluster
-    pub async fn connect_async(&mut self) -> Result<Session> {
-        unsafe {
-            let session = Session(cass_session_new());
-            let connect_future = <CassFuture<()>>::build(cass_session_connect(session.0, self.0));
-            connect_future.await?;
-            Ok(session)
-        }
+    /// Connects to the cassandra cluster, setting the keyspace of the session.
+    pub async fn connect_keyspace(&mut self, keyspace: &str) -> Result<Session> {
+        let session = Session::new();
+        let keyspace_ptr = keyspace.as_ptr() as *const c_char;
+        let connect_keyspace = unsafe {
+            cass_session_connect_keyspace_n(
+                session.inner(),
+                self.inner(),
+                keyspace_ptr,
+                keyspace.len(),
+            )
+        };
+        let connect_future = CassFuture::build(session, connect_keyspace);
+        connect_future.await
     }
 
     /// Sets the protocol version. This will automatically downgrade to the lowest

@@ -1,5 +1,5 @@
 use crate::cassandra::error::*;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra_sys::cass_inet_from_string_n;
 use crate::cassandra_sys::cass_inet_init_v4;
 use crate::cassandra_sys::cass_inet_init_v6;
@@ -36,10 +36,13 @@ impl PartialEq for Inet {
     }
 }
 
-impl Protected<_Inet> for Inet {
+impl ProtectedInner<_Inet> for Inet {
     fn inner(&self) -> _Inet {
         self.0
     }
+}
+
+impl Protected<_Inet> for Inet {
     fn build(inner: _Inet) -> Self {
         Inet(inner)
     }

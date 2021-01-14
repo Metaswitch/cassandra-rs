@@ -1,5 +1,5 @@
 use crate::cassandra::error::*;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 
 use crate::cassandra_sys::cass_ssl_add_trusted_cert_n;
 use crate::cassandra_sys::cass_ssl_free;
@@ -46,10 +46,13 @@ pub struct Ssl(*mut _Ssl);
 // from multiple threads: https://datastax.github.io/cpp-driver/topics/#thread-safety
 unsafe impl Send for Ssl {}
 
-impl Protected<*mut _Ssl> for Ssl {
+impl ProtectedInner<*mut _Ssl> for Ssl {
     fn inner(&self) -> *mut _Ssl {
         self.0
     }
+}
+
+impl Protected<*mut _Ssl> for Ssl {
     fn build(inner: *mut _Ssl) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
@@ -75,7 +78,8 @@ impl Default for Ssl {
 impl Ssl {
     /// Adds a trusted certificate. This is used to verify
     /// the peer's certificate.
-    pub fn add_trusted_cert(&mut self, cert: &str) -> Result<&mut Self> {
+    pub fn add_trusted_cert(&mut self, cert: impl AsRef<str>) -> Result<&mut Self> {
+        let cert = cert.as_ref();
         unsafe {
             let cert_ptr = cert.as_ptr() as *const c_char;
             cass_ssl_add_trusted_cert_n(self.0, cert_ptr, cert.len()).to_result(self)

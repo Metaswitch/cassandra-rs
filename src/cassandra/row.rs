@@ -3,7 +3,7 @@ use crate::cassandra::error::*;
 use crate::cassandra::inet::Inet;
 use crate::cassandra::iterator::{MapIterator, SetIterator, UserTypeIterator};
 use crate::cassandra::result::CassResult;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra::uuid::Uuid;
 use crate::cassandra::value::Value;
 use crate::cassandra_sys::cass_false;
@@ -31,10 +31,13 @@ pub struct Row<'a>(*const _Row, PhantomData<&'a CassResult>);
 unsafe impl<'a> Sync for Row<'a> {}
 unsafe impl<'a> Send for Row<'a> {}
 
-impl<'a> Protected<*const _Row> for Row<'a> {
+impl<'a> ProtectedInner<*const _Row> for Row<'a> {
     fn inner(&self) -> *const _Row {
         self.0
     }
+}
+
+impl<'a> Protected<*const _Row> for Row<'a> {
     fn build(inner: *const _Row) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

@@ -1,4 +1,4 @@
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra_sys::cass_retry_policy_default_new;
 use crate::cassandra_sys::cass_retry_policy_downgrading_consistency_new;
 use crate::cassandra_sys::cass_retry_policy_fallthrough_new;
@@ -14,10 +14,13 @@ pub struct RetryPolicy(*mut _RetryPolicy);
 // from multiple threads: https://datastax.github.io/cpp-driver/topics/#thread-safety
 unsafe impl Send for RetryPolicy {}
 
-impl Protected<*mut _RetryPolicy> for RetryPolicy {
+impl ProtectedInner<*mut _RetryPolicy> for RetryPolicy {
     fn inner(&self) -> *mut _RetryPolicy {
         self.0
     }
+}
+
+impl Protected<*mut _RetryPolicy> for RetryPolicy {
     fn build(inner: *mut _RetryPolicy) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

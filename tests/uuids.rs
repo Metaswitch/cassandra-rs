@@ -10,47 +10,49 @@ static CREATE_TABLE: &'static str =
     "CREATE TABLE IF NOT EXISTS examples.log (key text, time timeuuid, entry text, \
      PRIMARY KEY (key, time));";
 
-fn insert_into_log(session: &Session, key: &str, time: Uuid, entry: &str) -> Result<CassResult> {
-    let mut statement = stmt!(INSERT_QUERY);
+async fn insert_into_log(
+    session: &Session,
+    key: &str,
+    time: Uuid,
+    entry: &str,
+) -> Result<CassResult> {
+    let mut statement = session.statement(INSERT_QUERY);
     statement.bind(0, key)?;
     statement.bind(1, time)?;
     statement.bind(2, entry)?;
-    let future = session.execute(&statement);
-    future.wait()
+    statement.execute().await
 }
 
-fn select_from_log(session: &Session, key: &str) -> Result<Vec<(Uuid, String)>> {
-    let mut statement = stmt!(SELECT_QUERY);
+async fn select_from_log(session: &Session, key: &str) -> Result<Vec<(Uuid, String)>> {
+    let mut statement = session.statement(SELECT_QUERY);
     statement.bind(0, key)?;
-    let future = session.execute(&statement);
-    let results = future.wait();
-    results.map(|r| {
-        r.iter()
-            .map(|r| {
-                let t: Uuid = r.get_column(1).expect("time0").get_uuid().expect("time");
-                let e: String = r.get(2).expect("entry");
-                (t, e)
-            })
-            .collect()
-    })
+    let results = statement.execute().await?;
+    Ok(results
+        .iter()
+        .map(|r| {
+            let t: Uuid = r.get_column(1).expect("time").get_uuid().expect("time");
+            let e: String = r.get(2).expect("entry");
+            (t, e)
+        })
+        .collect())
 }
 
-#[test]
-fn test_uuids() {
+#[tokio::test]
+async fn test_uuids() -> Result<()> {
     let uuid_gen = UuidGen::default();
 
-    let session = help::create_test_session();
-    help::create_example_keyspace(&session);
+    let session = help::create_test_session().await;
+    help::create_example_keyspace(&session).await;
 
-    session.execute(&stmt!(CREATE_TABLE)).wait().unwrap();
-    session.execute(&stmt!(TRUNCATE_QUERY)).wait().unwrap();
+    session.execute(CREATE_TABLE).await?;
+    session.execute(TRUNCATE_QUERY).await?;
 
     println!("uuid_gen = {}", uuid_gen.gen_time());
-    insert_into_log(&session, "test", uuid_gen.gen_time(), "Log entry #1").unwrap();
-    insert_into_log(&session, "test", uuid_gen.gen_time(), "Log entry #2").unwrap();
-    insert_into_log(&session, "test", uuid_gen.gen_time(), "Log entry #3").unwrap();
-    insert_into_log(&session, "test", uuid_gen.gen_time(), "Log entry #4").unwrap();
-    let mut results = select_from_log(&session, "test").unwrap();
+    insert_into_log(&session, "test", uuid_gen.gen_time(), "Log entry #1").await?;
+    insert_into_log(&session, "test", uuid_gen.gen_time(), "Log entry #2").await?;
+    insert_into_log(&session, "test", uuid_gen.gen_time(), "Log entry #3").await?;
+    insert_into_log(&session, "test", uuid_gen.gen_time(), "Log entry #4").await?;
+    let mut results = select_from_log(&session, "test").await?;
     println!("{:?}", results);
 
     // Check the resulting UUIDs are in order.
@@ -63,6 +65,8 @@ fn test_uuids() {
     let mut uniques = results.iter().map(|ref kv| kv.0).collect::<Vec<Uuid>>();
     uniques.dedup();
     assert_eq!(4, uniques.len());
+
+    Ok(())
 }
 
 #[test]

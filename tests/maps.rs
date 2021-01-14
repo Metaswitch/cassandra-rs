@@ -14,8 +14,9 @@ static CREATE_TABLE: &'static str =
      PRIMARY KEY (key))";
 static SELECT_QUERY: &'static str = "SELECT items FROM examples.maps WHERE key = ?";
 
-fn insert_into_maps(session: &Session, key: &str, items: &Vec<Pair>) -> Result<()> {
-    let mut insert_statement = stmt!("INSERT INTO examples.maps (key, items) VALUES (?, ?);");
+async fn insert_into_maps(session: &Session, key: &str, items: &Vec<Pair>) -> Result<()> {
+    let mut insert_statement =
+        session.statement("INSERT INTO examples.maps (key, items) VALUES (?, ?);");
     insert_statement.bind(0, key).unwrap();
 
     let mut map = Map::new(items.len());
@@ -24,14 +25,15 @@ fn insert_into_maps(session: &Session, key: &str, items: &Vec<Pair>) -> Result<(
         map.append_int32(item.value).unwrap();
     }
     insert_statement.bind(1, map)?;
-    session.execute(&insert_statement).wait()?;
+    insert_statement.execute().await?;
+
     Ok(())
 }
 
-fn select_from_maps(session: &Session, key: &str) -> Result<Vec<Pair>> {
-    let mut statement = Statement::new(SELECT_QUERY, 1);
+async fn select_from_maps(session: &Session, key: &str) -> Result<Vec<Pair>> {
+    let mut statement = session.statement(SELECT_QUERY);
     statement.bind(0, key)?;
-    let result = session.execute(&statement).wait()?;
+    let result = statement.execute().await?;
     // println!("{:?}", result);
     let mut res = vec![];
     for row in result.iter() {
@@ -48,10 +50,10 @@ fn select_from_maps(session: &Session, key: &str) -> Result<Vec<Pair>> {
     Ok(res)
 }
 
-#[test]
-fn test_maps() {
-    let session = help::create_test_session();
-    help::create_example_keyspace(&session);
+#[tokio::test]
+async fn test_maps() -> Result<()> {
+    let session = help::create_test_session().await;
+    help::create_example_keyspace(&session).await;
 
     let items: Vec<Pair> = vec![
         Pair {
@@ -72,11 +74,13 @@ fn test_maps() {
         },
     ];
 
-    session.execute(&stmt!(CREATE_TABLE)).wait().unwrap();
-    insert_into_maps(&session, "test", &items).unwrap();
-    let result = select_from_maps(&session, "test").unwrap();
+    session.execute(CREATE_TABLE).await?;
+    insert_into_maps(&session, "test", &items).await?;
+    let result = select_from_maps(&session, "test").await?;
 
     let set0: HashSet<_> = items.iter().collect();
     let set1: HashSet<_> = result.iter().collect();
     assert_eq!(set0, set1, "expected {:?} but got {:?}", &items, &result);
+
+    Ok(())
 }

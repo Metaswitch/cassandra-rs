@@ -2,7 +2,6 @@
 #![allow(dead_code)]
 #![allow(missing_copy_implementations)]
 
-use crate::cassandra::batch::Batch;
 use crate::cassandra::cluster::Cluster;
 use crate::cassandra::error::*;
 use crate::cassandra::future::CassFuture;
@@ -11,7 +10,8 @@ use crate::cassandra::prepared::PreparedStatement;
 use crate::cassandra::result::CassResult;
 use crate::cassandra::schema::schema_meta::SchemaMeta;
 use crate::cassandra::statement::Statement;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
+use crate::{cassandra::batch::Batch, BatchType};
 
 use crate::cassandra_sys::cass_session_close;
 use crate::cassandra_sys::cass_session_connect;
@@ -28,6 +28,21 @@ use crate::cassandra_sys::CassSession as _Session;
 use std::ffi::NulError;
 use std::mem;
 use std::os::raw::c_char;
+use std::sync::Arc;
+
+#[derive(Debug, Eq, PartialEq)]
+struct SessionInner(*mut _Session);
+
+// The underlying C type has no thread-local state, and explicitly supports access
+// from multiple threads: https://datastax.github.io/cpp-driver/topics/#thread-safety
+unsafe impl Send for SessionInner {}
+unsafe impl Sync for SessionInner {}
+
+impl SessionInner {
+    fn new(inner: *mut _Session) -> Arc<Self> {
+        Arc::new(Self(inner))
+    }
+}
 
 /// A session object is used to execute queries and maintains cluster state through
 /// the control connection. The control connection is used to auto-discover nodes and
@@ -35,27 +50,36 @@ use std::os::raw::c_char;
 /// /pools of connections to cluster nodes which are used to query the cluster.
 ///
 /// Instances of the session object are thread-safe to execute queries.
-#[derive(Debug)]
-pub struct Session(pub *mut _Session);
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Session(Arc<SessionInner>);
 
 // The underlying C type has no thread-local state, and explicitly supports access
 // from multiple threads: https://datastax.github.io/cpp-driver/topics/#thread-safety
 unsafe impl Send for Session {}
 unsafe impl Sync for Session {}
 
-impl Protected<*mut _Session> for Session {
+impl ProtectedInner<*mut _Session> for SessionInner {
     fn inner(&self) -> *mut _Session {
         self.0
     }
+}
+
+impl ProtectedInner<*mut _Session> for Session {
+    fn inner(&self) -> *mut _Session {
+        self.0.inner()
+    }
+}
+
+impl Protected<*mut _Session> for Session {
     fn build(inner: *mut _Session) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
         };
-        Session(inner)
+        Session(SessionInner::new(inner))
     }
 }
 
-impl Drop for Session {
+impl Drop for SessionInner {
     /// Frees a session instance. If the session is still connected it will be synchronously
     /// closed before being deallocated.
     fn drop(&mut self) {
@@ -70,69 +94,38 @@ impl Default for Session {
 }
 
 impl Session {
-    /// Create a new Cassanda session.
-    /// It's recommended to use Cluster.connect() instead
-    pub fn new() -> Session {
-        unsafe { Session(cass_session_new()) }
+    pub(crate) fn new() -> Session {
+        unsafe { Session(SessionInner::new(cass_session_new())) }
     }
 
-    //    pub fn new2() -> *mut _Session {
-    //        unsafe { cass_session_new() }
-    //    }
-
-    /// Connects a session.
-    pub fn connect(self, cluster: &Cluster) -> CassFuture<()> {
-        unsafe { <CassFuture<()>>::build(cass_session_connect(self.0, cluster.inner())) }
-    }
-
-    /// Connects a session and sets the keyspace.
-    pub fn connect_keyspace(&self, cluster: &Cluster, keyspace: &str) -> Result<CassFuture<()>> {
-        unsafe {
-            let keyspace_ptr = keyspace.as_ptr() as *const c_char;
-            Ok(<CassFuture<()>>::build(cass_session_connect_keyspace_n(
-                self.0,
-                cluster.inner(),
-                keyspace_ptr,
-                keyspace.len(),
-            )))
-        }
-    }
-
-    /// Closes the session instance, outputs a close future which can
-    /// be used to determine when the session has been terminated. This allows
-    /// in-flight requests to finish.
-    pub fn close(self) -> CassFuture<()> {
-        unsafe { <CassFuture<()>>::build(cass_session_close(self.0)) }
-    }
-
-    /// Create a prepared statement.
-    pub fn prepare(&self, query: &str) -> Result<CassFuture<PreparedStatement>> {
-        unsafe {
+    /// Create a prepared statement with the given query.
+    pub async fn prepare(&self, query: impl AsRef<str>) -> Result<PreparedStatement> {
+        let query = query.as_ref();
+        let prepare_future = {
             let query_ptr = query.as_ptr() as *const c_char;
-            Ok(<CassFuture<PreparedStatement>>::build(
-                cass_session_prepare_n(self.0, query_ptr, query.len()),
-            ))
-        }
+            CassFuture::build(self.clone(), unsafe {
+                cass_session_prepare_n(self.inner(), query_ptr, query.len())
+            })
+        };
+        prepare_future.await
     }
 
-    //    ///Execute a query or bound statement.
-    //    pub fn execute(&self, statement: &str, parameter_count: u64) -> CassFuture {
-    //        unsafe {
-    //            CassFuture::build(cass_session_execute(self.0,
-    //            Statement::new(statement, parameter_count).inner()))
-    //        }
-    //    }
-
-    /// Execute a batch statement.
-    pub fn execute_batch(&self, batch: Batch) -> CassFuture<CassResult> {
-        <CassFuture<CassResult>>::build(unsafe {
-            cass_session_execute_batch(self.0, batch.inner())
-        })
+    /// Creates a statement with the given query.
+    pub fn statement(&self, query: impl AsRef<str>) -> Statement {
+        let query = query.as_ref();
+        let param_count = query.matches("?").count();
+        Statement::new(self.clone(), query, param_count)
     }
 
-    /// Execute a statement.
-    pub fn execute(&self, statement: &Statement) -> CassFuture<CassResult> {
-        unsafe { <CassFuture<CassResult>>::build(cass_session_execute(self.0, statement.inner())) }
+    /// Executes a given query.
+    pub async fn execute(&self, query: impl AsRef<str>) -> Result<CassResult> {
+        let statement = self.statement(query);
+        statement.execute().await
+    }
+
+    /// Creates a new batch that is bound to this session.
+    pub fn batch(&self, batch_type: BatchType) -> Batch {
+        Batch::new(batch_type, self.clone())
     }
 
     /// Gets a snapshot of this session's schema metadata. The returned
@@ -140,14 +133,14 @@ impl Session {
     /// must be called again to retrieve any schema changes since the
     /// previous call.
     pub fn get_schema_meta(&self) -> SchemaMeta {
-        unsafe { SchemaMeta::build(cass_session_get_schema_meta(self.0)) }
+        unsafe { SchemaMeta::build(cass_session_get_schema_meta(self.inner())) }
     }
 
     /// Gets a copy of this session's performance/diagnostic metrics.
     pub fn get_metrics(&self) -> SessionMetrics {
         unsafe {
             let mut metrics = mem::zeroed();
-            cass_session_get_metrics(self.0, &mut metrics);
+            cass_session_get_metrics(self.inner(), &mut metrics);
             SessionMetrics::build(&metrics)
         }
     }

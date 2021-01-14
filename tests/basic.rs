@@ -28,24 +28,32 @@ struct Basic {
 }
 
 /// Create the table for basic testing.
-fn create_basic_table(session: &Session) {
-    let type_statement = &stmt!("CREATE TYPE IF NOT EXISTS examples.udt (dt date, tm time);");
-    session.execute(type_statement).wait().unwrap();
-    let table_statement = &stmt!(
-        "CREATE TABLE IF NOT EXISTS examples.basic (key text, bln boolean, flt \
-         float, dbl double, i8 tinyint, i16 smallint, i32 int, i64 bigint, \
-         ts timestamp, addr inet, tu timeuuid, id uuid, ct udt, txt text, PRIMARY KEY (key));"
-    );
-    session.execute(table_statement).wait().unwrap();
-    let truncate_statement = &stmt!("TRUNCATE examples.basic;");
-    session.execute(truncate_statement).wait().unwrap();
+async fn create_basic_table(session: &Session) -> Result<()> {
+    session
+        .execute("CREATE TYPE IF NOT EXISTS examples.udt (dt date, tm time);")
+        .await?;
+    session
+        .execute(
+            "
+                CREATE TABLE IF NOT EXISTS examples.basic (key text, bln boolean, flt \
+                float, dbl double, i8 tinyint, i16 smallint, i32 int, i64 bigint, \
+                ts timestamp, addr inet, tu timeuuid, id uuid, ct udt, txt text, PRIMARY KEY (key));
+            ",
+        )
+        .await?;
+    session.execute("TRUNCATE examples.basic;").await?;
+    Ok(())
 }
 
-fn insert_into_basic_by_name(session: &Session, key: &str, basic: &Basic) -> Result<CassResult> {
-    let mut statement = stmt!(
-        "INSERT INTO examples.basic (key, bln, flt, dbl, i8, i16, i32, i64, ts, addr, tu, id, ct, txt) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"
-    );
+async fn insert_into_basic_by_name(
+    session: &Session,
+    key: &str,
+    basic: &Basic,
+) -> Result<CassResult> {
+    let mut statement = session.statement("
+        INSERT INTO examples.basic (key, bln, flt, dbl, i8, i16, i32, i64, ts, addr, tu, id, ct, txt) \
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ");
 
     let ct_type = DataType::new_udt(2);
     ct_type.add_sub_value_type_by_name::<&str>("dt", ValueType::DATE)?;
@@ -69,14 +77,14 @@ fn insert_into_basic_by_name(session: &Session, key: &str, basic: &Basic) -> Res
     statement.bind_by_name("ct", &ct_udt)?;
     statement.bind_by_name("txt", basic.txt.as_str())?;
 
-    session.execute(&statement).wait()
+    statement.execute().await
 }
 
-fn insert_into_basic(session: &Session, key: &str, basic: &Basic) -> Result<CassResult> {
-    let mut statement = stmt!(
-        "INSERT INTO examples.basic (key, bln, flt, dbl, i8, i16, i32, i64, ts, addr, tu, id, ct, txt) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"
-    );
+async fn insert_into_basic(session: &Session, key: &str, basic: &Basic) -> Result<CassResult> {
+    let mut statement = session.statement("
+        INSERT INTO examples.basic (key, bln, flt, dbl, i8, i16, i32, i64, ts, addr, tu, id, ct, txt) \
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ");
 
     let ct_type = DataType::new_udt(2);
     ct_type.add_sub_value_type_by_name::<&str>("dt", ValueType::DATE)?;
@@ -100,21 +108,14 @@ fn insert_into_basic(session: &Session, key: &str, basic: &Basic) -> Result<Cass
     statement.bind(12, &ct_udt)?;
     statement.bind(13, basic.txt.as_str())?;
 
-    session.execute(&statement).wait()
+    statement.execute().await
 }
 
-const SELECT_QUERY: &str =
-    "SELECT key, bln, flt, dbl, i8, i16, i32, i64, ts, addr, tu, id, ct, txt \
-                            FROM examples.basic WHERE key = ?";
-
-fn select_from_basic(session: &Session, key: &str) -> Result<Option<Basic>> {
-    let mut statement = stmt!(SELECT_QUERY);
-    statement.bind_string(0, key)?;
-    let result = session.execute(&statement).wait()?;
-    println!("Result: \n{:?}\n", result);
+fn basic_from_result(result: CassResult) -> Result<Option<Basic>> {
     match result.first_row() {
         None => Ok(None),
         Some(row) => {
+            // todo: refactor?
             let fields_iter: UserTypeIterator = row.get(12)?;
             let mut dt: u32 = 0;
             let mut tm: i64 = 0;
@@ -145,83 +146,63 @@ fn select_from_basic(session: &Session, key: &str) -> Result<Option<Basic>> {
     }
 }
 
-fn select_from_basic_prepared(
-    session: &Session,
-    prepared: &PreparedStatement,
-    key: &str,
-    basic: &mut Basic,
-) -> Result<()> {
-    let mut statement = prepared.bind();
+const SELECT_QUERY: &str = "
+SELECT key, bln, flt, dbl, i8, i16, i32, i64, ts, addr, tu, id, ct, txt \
+FROM examples.basic WHERE key = ?";
+
+async fn select_from_basic(session: &Session, key: &str) -> Result<Option<Basic>> {
+    let mut statement = session.statement(SELECT_QUERY);
     statement.bind_string(0, key)?;
-    let future = session.execute(&statement);
-    let result = future.wait()?;
-    println!("{:?}", result);
-    for row in result.iter() {
-        basic.bln = row.get(1)?;
-        basic.flt = row.get(2)?;
-        basic.dbl = row.get(3)?;
-        basic.i8 = row.get(4)?;
-        basic.i16 = row.get(5)?;
-        basic.i32 = row.get(6)?;
-        basic.i64 = row.get(7)?;
-        basic.ts = row.get(8)?;
-        basic.addr = row.get(9)?;
-        basic.tu = row.get(10)?;
-        basic.id = row.get(11)?;
-        basic.txt = row.get(13)?;
-
-        let fields_iter: UserTypeIterator = row.get(12)?;
-        let mut dt: u32 = 0;
-        let mut tm: i64 = 0;
-
-        for field in fields_iter {
-            match field.0.as_ref() {
-                "dt" => dt = field.1.get_u32()?,
-                "tm" => tm = field.1.get_i64()?,
-                _ => panic!("Unexpected field: {:?}", field),
-            }
-        }
-
-        basic.ct = Udt { dt: dt, tm: tm };
-    }
-    Ok(())
+    let result = statement.execute().await?;
+    println!("Result: \n{:?}\n", result);
+    basic_from_result(result)
 }
 
-#[test]
-fn test_simple() {
-    let query = stmt!("SELECT keyspace_name FROM system_schema.keyspaces;");
-    let col_name = "keyspace_name";
+async fn select_from_basic_prepared(
+    prepared: &PreparedStatement,
+    key: &str,
+) -> Result<Option<Basic>> {
+    let mut statement = prepared.bind();
+    statement.bind_string(0, key)?;
+    let result = statement.execute().await?;
+    basic_from_result(result)
+}
 
-    let session = help::create_test_session();
+#[tokio::test]
+async fn test_simple() -> Result<()> {
+    let session = help::create_test_session().await;
+    let result = session
+        .execute("SELECT keyspace_name FROM system_schema.keyspaces;")
+        .await?;
 
-    let result = session.execute(&query).wait().unwrap();
     println!("{}", result);
     let mut names = vec![];
     for row in result.iter() {
-        let col: String = row.get_by_name(col_name).unwrap();
+        let col: String = row.get_by_name("keyspace_name").unwrap();
         println!("ks name = {}", col);
         names.push(col);
     }
 
     assert!(names.contains(&"system_schema".to_string()));
     assert!(names.contains(&"system_auth".to_string()));
+
+    Ok(())
 }
 
-#[test]
-fn test_basic_error() {
-    let session = help::create_test_session();
-    let s = stmt!("CREATE GOBBLEDEGOOK;");
+#[tokio::test]
+async fn test_basic_error() {
+    let session = help::create_test_session().await;
     session
-        .execute(&s)
-        .wait()
+        .execute("CREATE GOBBLEDEGOOK;")
+        .await
         .expect_err("Should cleanly return an error");
 }
 
-#[test]
-fn test_basic_round_trip() {
-    let session = help::create_test_session();
-    help::create_example_keyspace(&session);
-    create_basic_table(&session);
+#[tokio::test]
+async fn test_basic_round_trip() -> Result<()> {
+    let session = help::create_test_session().await;
+    help::create_example_keyspace(&session).await;
+    create_basic_table(&session).await?;
     let uuid_gen = UuidGen::default();
 
     let ts = SystemTime::now()
@@ -229,6 +210,7 @@ fn test_basic_round_trip() {
         .unwrap()
         .as_secs()
         * 1_000;
+
     let input = Basic {
         bln: true,
         flt: 0.001f32,
@@ -248,9 +230,9 @@ fn test_basic_round_trip() {
         txt: "some\0unicode text 😊".to_string(),
     };
 
-    insert_into_basic(&session, "test", &input).unwrap();
+    insert_into_basic(&session, "test", &input).await?;
     let output = select_from_basic(&session, "test")
-        .unwrap()
+        .await?
         .expect("no output from select");
 
     println!("{:?}", input);
@@ -266,19 +248,21 @@ fn test_basic_round_trip() {
         input
     };
 
-    insert_into_basic_by_name(&session, "test_by_name", &input).unwrap();
+    insert_into_basic_by_name(&session, "test_by_name", &input).await?;
     let output = select_from_basic(&session, "test_by_name")
-        .unwrap()
+        .await?
         .expect("no output from select");
 
     assert!(input == output);
+
+    Ok(())
 }
 
-#[test]
-fn test_prepared_round_trip() {
-    let session = help::create_test_session();
-    help::create_example_keyspace(&session);
-    create_basic_table(&session);
+#[tokio::test]
+async fn test_prepared_round_trip() -> Result<()> {
+    let session = help::create_test_session().await;
+    help::create_example_keyspace(&session).await;
+    create_basic_table(&session).await?;
     let uuid_gen = UuidGen::default();
 
     let ts = SystemTime::now()
@@ -304,37 +288,38 @@ fn test_prepared_round_trip() {
         },
         txt: "some\0text".to_string(),
     };
-    let mut output = Basic::default();
 
     println!("Basic insertions");
-    insert_into_basic(&session, "prepared_test", &input).unwrap();
+    insert_into_basic(&session, "prepared_test", &input).await?;
     println!("Preparing");
-    let prepared = session
-        .prepare(SELECT_QUERY)
-        .unwrap()
-        .wait()
-        .expect("prepared");
-    select_from_basic_prepared(&session, &prepared, "prepared_test", &mut output).unwrap();
+    let prepared = session.prepare(SELECT_QUERY).await?;
+
+    let output = select_from_basic_prepared(&prepared, "prepared_test")
+        .await?
+        .expect("did not find row");
     assert_eq!(input, output, "Input:  {:?}\noutput: {:?}", &input, &output);
+
+    Ok(())
 }
 
-#[test]
-fn test_null_retrieval() {
-    let session = help::create_test_session();
-    help::create_example_keyspace(&session);
-    create_basic_table(&session);
+#[tokio::test]
+async fn test_null_retrieval() -> Result<()> {
+    let session = help::create_test_session().await;
+    help::create_example_keyspace(&session).await;
+    create_basic_table(&session).await?;
 
     // Insert a partial row.
-    let partial =
-        stmt!("INSERT INTO examples.basic (key, bln, flt) VALUES ('vacant', true, 3.14);");
-    session.execute(&partial).wait().expect("insert");
+    session
+        .execute("INSERT INTO examples.basic (key, bln, flt) VALUES ('vacant', true, 3.14);")
+        .await?;
 
     // Read the whole row.
-    let query = stmt!(
-        "SELECT key, bln, flt, dbl, i8, i16, i32, i64, ts, addr, tu, id, ct, txt \
-         FROM examples.basic WHERE key = 'vacant';"
-    );
-    let result = session.execute(&query).wait().expect("select");
+    let result = session
+        .execute(
+            "SELECT key, bln, flt, dbl, i8, i16, i32, i64, ts, addr, tu, id, ct, txt \
+              FROM examples.basic WHERE key = 'vacant';",
+        )
+        .await?;
 
     // Check response is as expected.
     assert_eq!(1, result.row_count());
@@ -352,101 +337,106 @@ fn test_null_retrieval() {
     assert_eq!(v, 3.14f32);
     assert!(!row.get_column(2).unwrap().is_null());
 
-    let c = row.get_column(3).expect("should be present");
+    let c = row.get_column(3)?;
     c.get_f64().expect_err("should be null");
     assert!(c.is_null());
 
-    let c = row.get_column(4).expect("should be present");
+    let c = row.get_column(4)?;
     c.get_i8().expect_err("should be null");
     assert!(c.is_null());
 
-    let c = row.get_column(5).expect("should be present");
+    let c = row.get_column(5)?;
     c.get_i16().expect_err("should be null");
     assert!(c.is_null());
 
-    let c = row.get_column(6).expect("should be present");
+    let c = row.get_column(6)?;
     c.get_i32().expect_err("should be null");
     assert!(c.is_null());
 
-    let c = row.get_column(7).expect("should be present");
+    let c = row.get_column(7)?;
     c.get_i64().expect_err("should be null");
     assert!(c.is_null());
 
-    let c = row.get_column(8).expect("should be present");
+    let c = row.get_column(8)?;
     c.get_u32().expect_err("should be null");
     assert!(c.is_null());
 
-    let c = row.get_column(9).expect("should be present");
+    let c = row.get_column(9)?;
     c.get_inet().expect_err("should be null");
     assert!(c.is_null());
 
-    let c = row.get_column(10).expect("should be present");
+    let c = row.get_column(10)?;
     c.get_uuid().expect_err("should be null");
     assert!(c.is_null());
 
-    let c = row.get_column(11).expect("should be present");
+    let c = row.get_column(11)?;
     c.get_uuid().expect_err("should be null");
     assert!(c.is_null());
 
-    let c = row.get_column(12).expect("should be present");
+    let c = row.get_column(12)?;
     c.get_user_type().expect_err("should be null");
     assert!(c.is_null());
 
-    let c = row.get_column(13).expect("should be present");
+    let c = row.get_column(13)?;
     c.get_user_type().expect_err("should be null");
     assert!(c.is_null());
+
+    Ok(())
 }
 
-#[test]
-fn test_null_insertion() {
-    let session = help::create_test_session();
+#[tokio::test]
+async fn test_null_insertion() -> Result<()> {
+    let session = help::create_test_session().await;
     help::create_example_keyspace(&session);
     create_basic_table(&session);
 
     // Insert some explicit nulls.
-    let mut s = stmt!(
+    let mut s = session.statement(
         "INSERT INTO examples.basic (key, bln, flt, dbl, i8, i16, i32, i64, ts, addr, tu, id, ct, txt) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"
     );
-    s.bind(0, "shrdlu").unwrap();
-    s.bind(1, false).unwrap();
-    s.bind_null(2).unwrap();
-    s.bind(3, 2.72f64).unwrap();
+    s.bind(0, "shrdlu")?;
+    s.bind(1, false)?;
+    s.bind_null(2)?;
+    s.bind(3, 2.72f64)?;
     // deliberately omit 4 - this should be equivalent to binding null
-    s.bind_null(5).unwrap();
-    s.bind_null(6).unwrap();
-    s.bind_null(7).unwrap();
-    s.bind_null(8).unwrap();
-    s.bind_null(9).unwrap();
-    s.bind_null(10).unwrap();
-    s.bind_null(11).unwrap();
-    s.bind_null(12).unwrap();
-    s.bind_null(13).unwrap();
-    session.execute(&s).wait().unwrap();
+    s.bind_null(5)?;
+    s.bind_null(6)?;
+    s.bind_null(7)?;
+    s.bind_null(8)?;
+    s.bind_null(9)?;
+    s.bind_null(10)?;
+    s.bind_null(11)?;
+    s.bind_null(12)?;
+    s.bind_null(13)?;
+    s.execute().await?;
 
     // Read them back.
-    let s = stmt!(
-        "SELECT key, bln, flt, dbl, i8, i16, i32, i64, ts, addr, tu, id, ct, txt \
-         FROM examples.basic WHERE key = 'shrdlu';"
-    );
-    let result = session.execute(&s).wait().expect("select");
+    let result = session
+        .execute(
+            "SELECT key, bln, flt, dbl, i8, i16, i32, i64, ts, addr, tu, id, ct, txt \
+              FROM examples.basic WHERE key = 'shrdlu';",
+        )
+        .await?;
     assert_eq!(1, result.row_count());
     let row = result.first_row().unwrap();
 
-    assert!(!row.get_column(0).unwrap().is_null());
-    assert!(!row.get_column(1).unwrap().is_null());
-    assert!(row.get_column(2).unwrap().is_null());
-    assert!(!row.get_column(3).unwrap().is_null());
-    assert!(row.get_column(4).unwrap().is_null());
-    assert!(row.get_column(5).unwrap().is_null());
-    assert!(row.get_column(6).unwrap().is_null());
-    assert!(row.get_column(7).unwrap().is_null());
-    assert!(row.get_column(8).unwrap().is_null());
-    assert!(row.get_column(9).unwrap().is_null());
-    assert!(row.get_column(10).unwrap().is_null());
-    assert!(row.get_column(11).unwrap().is_null());
-    assert!(row.get_column(12).unwrap().is_null());
-    assert!(row.get_column(13).unwrap().is_null());
+    assert!(!row.get_column(0)?.is_null());
+    assert!(!row.get_column(1)?.is_null());
+    assert!(row.get_column(2)?.is_null());
+    assert!(!row.get_column(3)?.is_null());
+    assert!(row.get_column(4)?.is_null());
+    assert!(row.get_column(5)?.is_null());
+    assert!(row.get_column(6)?.is_null());
+    assert!(row.get_column(7)?.is_null());
+    assert!(row.get_column(8)?.is_null());
+    assert!(row.get_column(9)?.is_null());
+    assert!(row.get_column(10)?.is_null());
+    assert!(row.get_column(11)?.is_null());
+    assert!(row.get_column(12)?.is_null());
+    assert!(row.get_column(13)?.is_null());
+
+    Ok(())
 }
 
 /// Check for a needle in a haystack, and fail if not present.
@@ -459,15 +449,16 @@ fn assert_contains(haystack: String, needle: &str) {
     );
 }
 
-#[test]
-fn test_rendering() {
-    let query = stmt!("SELECT * FROM system_schema.tables;");
-    let session = help::create_test_session();
-    let result = session.execute(&query).wait().unwrap();
+#[tokio::test]
+async fn test_rendering() -> Result<()> {
+    let session = help::create_test_session().await;
+    let result = session
+        .execute("SELECT * FROM system_schema.tables;")
+        .await?;
     println!("test_rendering: {}", result);
 
     let row = result.iter().next().unwrap();
-    let compaction_col = row.get_column_by_name("compaction").unwrap();
+    let compaction_col = row.get_column_by_name("compaction")?;
 
     // Check rendering of a column
     let column_debug = format!("{:?}", compaction_col);
@@ -497,19 +488,19 @@ fn test_rendering() {
     keyspace_col
         .get_map()
         .expect_err("Should fail with invalid value type");
+
+    Ok(())
 }
 
-#[test]
-fn test_error_reporting() {
-    let session = help::create_test_session();
+#[tokio::test]
+async fn test_error_reporting() -> Result<()> {
+    let session = help::create_test_session().await;
 
     // Simple error.
-    let mut query = stmt!("SELECT * from system_schema.tables;");
-    query.set_consistency(Consistency::THREE).unwrap(); // assuming we only have one node, this must fail
-    let err = session
-        .execute(&query)
-        .wait()
-        .expect_err("Should have failed!");
+    let mut statement = session.statement("SELECT * from system_schema.tables;");
+    statement.set_consistency(Consistency::THREE).unwrap(); // assuming we only have one node, this must fail
+    let err = statement.execute().await.expect_err("Should have failed!");
+
     println!("Got error {} kind {:?}", err, err.kind());
     match *err.kind() {
         ErrorKind::CassError(CassErrorCode::LIB_NO_HOSTS_AVAILABLE, _) => (),
@@ -517,10 +508,9 @@ fn test_error_reporting() {
     }
 
     // Detailed error.
-    let query = stmt!("SELECT gibberish from system_schema.tables;");
     let err = session
-        .execute(&query)
-        .wait()
+        .execute("SELECT gibberish from system_schema.tables;")
+        .await
         .expect_err("Should have failed!");
     println!("Got error {} kind {:?}", err, err.kind());
     match *err.kind() {
@@ -542,16 +532,17 @@ fn test_error_reporting() {
 
     // UTF-8 error - return an invalid UTF-8 string
     // Interpret -1 (0xFFFFFFFF) as a UTF-8 string, but 0xFF... is invalid UTF-8.
-    help::create_example_keyspace(&session);
-    create_basic_table(&session);
-    let s = stmt!("INSERT INTO examples.basic (key, i32) VALUES ('utf8', -1);");
-    session.execute(&s).wait().unwrap();
-    let query = stmt!("SELECT i32 FROM examples.basic WHERE key = 'utf8';");
-    let result = session.execute(&query).wait().unwrap();
+    help::create_example_keyspace(&session).await;
+    create_basic_table(&session).await?;
+    session
+        .execute("INSERT INTO examples.basic (key, i32) VALUES ('utf8', -1);")
+        .await?;
+    let result = session
+        .execute("SELECT i32 FROM examples.basic WHERE key = 'utf8';")
+        .await?;
     let row = result.iter().next().unwrap();
     let err = row
-        .get_column(0)
-        .unwrap()
+        .get_column(0)?
         .get_string()
         .expect_err("Should have failed");
     println!("Got error {} kind {:?}", err, err.kind());
@@ -559,24 +550,28 @@ fn test_error_reporting() {
         ErrorKind::InvalidUtf8(_) => (),
         ref k => panic!("Unexpected error kind {}", k),
     }
+
+    Ok(())
 }
 
-#[test]
-fn test_result() {
-    let query = stmt!("SELECT * FROM system_schema.tables;");
-    let session = help::create_test_session();
-    let result = session.execute(&query).wait().unwrap();
+#[tokio::test]
+async fn test_result() {
+    let session = help::create_test_session().await;
+    let result = session
+        .execute("SELECT * FROM system_schema.tables;")
+        .await
+        .unwrap();
 
     assert_eq!("keyspace_name", result.column_name(0).unwrap());
     assert_eq!("table_name", result.column_name(1).unwrap());
 }
 
-#[test]
-fn test_statement_timeout() {
-    let mut query = stmt!("SELECT * FROM system_schema.tables;");
+#[tokio::test]
+async fn test_statement_timeout() {
+    let session = help::create_test_session().await;
+    let mut query = session.statement("SELECT * FROM system_schema.tables;");
     query.set_statement_request_timeout(Some(Duration::milliseconds(30000 as i64)));
-    let session = help::create_test_session();
-    let result = session.execute(&query).wait().unwrap();
+    let result = query.execute().await.unwrap();
 
     assert_eq!("keyspace_name", result.column_name(0).unwrap());
     assert_eq!("table_name", result.column_name(1).unwrap());

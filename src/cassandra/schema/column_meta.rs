@@ -1,7 +1,7 @@
 use crate::cassandra::data_type::ConstDataType;
 
 use crate::cassandra::iterator::FieldIterator;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra::value::Value;
 use crate::cassandra_sys::cass_column_meta_data_type;
 use crate::cassandra_sys::cass_column_meta_field_by_name_n;
@@ -20,10 +20,13 @@ use std::os::raw::c_char;
 use std::slice;
 use std::str;
 
-impl Protected<*const _CassColumnMeta> for ColumnMeta {
+impl ProtectedInner<*const _CassColumnMeta> for ColumnMeta {
     fn inner(&self) -> *const _CassColumnMeta {
         self.0
     }
+}
+
+impl Protected<*const _CassColumnMeta> for ColumnMeta {
     fn build(inner: *const _CassColumnMeta) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

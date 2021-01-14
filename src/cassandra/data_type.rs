@@ -1,6 +1,6 @@
 use crate::cassandra::error::*;
 use crate::cassandra::user_type::UserType;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra::value::ValueType;
 
 use crate::cassandra_sys::cass_data_sub_type_count;
@@ -40,10 +40,13 @@ pub struct ConstDataType(*const _CassDataType);
 unsafe impl Send for DataType {}
 unsafe impl Send for ConstDataType {}
 
-impl Protected<*mut _CassDataType> for DataType {
+impl ProtectedInner<*mut _CassDataType> for DataType {
     fn inner(&self) -> *mut _CassDataType {
         self.0
     }
+}
+
+impl Protected<*mut _CassDataType> for DataType {
     fn build(inner: *mut _CassDataType) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
@@ -52,10 +55,13 @@ impl Protected<*mut _CassDataType> for DataType {
     }
 }
 
-impl Protected<*const _CassDataType> for ConstDataType {
+impl ProtectedInner<*const _CassDataType> for ConstDataType {
     fn inner(&self) -> *const _CassDataType {
         self.0
     }
+}
+
+impl Protected<*const _CassDataType> for ConstDataType {
     fn build(inner: *const _CassDataType) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

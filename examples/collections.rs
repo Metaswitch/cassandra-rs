@@ -3,15 +3,11 @@
 use cassandra_cpp::*;
 use std::collections::hash_map::HashMap;
 
-fn do_work(session: &Session) -> Result<()> {
-    let create_keyspace = stmt!("CREATE KEYSPACE IF NOT EXISTS testks WITH REPLICATION = { 'class': 'SimpleStrategy', 'replication_factor': 1 };");
-    let create_table = stmt!("CREATE TABLE IF NOT EXISTS testks.user (first_name text PRIMARY KEY, addresses map<text, text>, email set<text>, last_name text, phone_numbers list<text>, title int);");
-    let mut insert_data = stmt!("INSERT INTO testks.user (first_name, addresses, email, last_name, phone_numbers, title) VALUES (?, ?, ?, ?, ?, ?);");
-    let query = stmt!("SELECT * FROM testks.user;");
+async fn do_work(session: &Session) -> Result<()> {
+    session.execute("CREATE KEYSPACE IF NOT EXISTS testks WITH REPLICATION = { 'class': 'SimpleStrategy', 'replication_factor': 1 };").await?;
+    session.execute("CREATE TABLE IF NOT EXISTS testks.user (first_name text PRIMARY KEY, addresses map<text, text>, email set<text>, last_name text, phone_numbers list<text>, title int);").await?;
 
-    session.execute(&create_keyspace).wait()?;
-
-    session.execute(&create_table).wait()?;
+    let mut insert_data = session.statement("INSERT INTO testks.user (first_name, addresses, email, last_name, phone_numbers, title) VALUES (?, ?, ?, ?, ?, ?);");
 
     insert_data.bind(0, "Paul")?;
     insert_data.bind_null(1)?;
@@ -25,9 +21,9 @@ fn do_work(session: &Session) -> Result<()> {
     phones.append_string("789-012")?;
     insert_data.bind(4, phones)?; // TODO: bind should really accept Vec<T>, and map should accept HashMap<T, U>. Requires generic CassCollection::append.
     insert_data.bind(5, 13)?;
-    session.execute(&insert_data).wait()?;
+    insert_data.execute().await?;
 
-    let result = session.execute(&query).wait()?;
+    let result = session.execute("SELECT * FROM testks.user;").await?;
 
     println!("Overall result: {}", result);
     for row in result.iter() {
@@ -61,12 +57,12 @@ fn do_work(session: &Session) -> Result<()> {
     Ok(())
 }
 
-fn main() {
-    let contact_points = "127.0.0.1";
+#[tokio::main]
+async fn main() -> Result<()> {
     let mut cluster = Cluster::default();
-    cluster.set_contact_points(contact_points).unwrap();
+    cluster.set_contact_points("127.0.0.1").unwrap();
     cluster.set_load_balance_round_robin();
 
-    let session = cluster.connect().unwrap();
-    do_work(&session).unwrap();
+    let session = cluster.connect().await?;
+    do_work(&session).await
 }

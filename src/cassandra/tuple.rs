@@ -4,7 +4,7 @@ use crate::cassandra::data_type::DataType;
 use crate::cassandra::error::*;
 use crate::cassandra::inet::Inet;
 use crate::cassandra::user_type::UserType;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra::uuid::Uuid;
 
 use crate::cassandra_sys::cass_false;
@@ -43,10 +43,13 @@ pub struct Tuple(*mut _Tuple);
 // from multiple threads: https://datastax.github.io/cpp-driver/topics/#thread-safety
 unsafe impl Send for Tuple {}
 
-impl Protected<*mut _Tuple> for Tuple {
+impl ProtectedInner<*mut _Tuple> for Tuple {
     fn inner(&self) -> *mut _Tuple {
         self.0
     }
+}
+
+impl Protected<*mut _Tuple> for Tuple {
     fn build(inner: *mut _Tuple) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

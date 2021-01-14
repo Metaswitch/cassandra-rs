@@ -12,37 +12,39 @@ static SELECT_QUERY: &'static str = "SELECT * FROM paging";
 static INSERT_QUERY: &'static str = "INSERT INTO paging (key, value) VALUES (?, ?);";
 
 // FIXME uuids not yet working
-fn insert_into_paging(
-    session: &Session, /* , uuid_gen:&mut UuidGen */
-) -> Result<Vec<Option<CassFuture<CassResult>>>> {
+async fn insert_into_paging(session: &Session /* , uuid_gen:&mut UuidGen */) -> Result<()> {
     let mut futures = Vec::with_capacity(NUM_CONCURRENT_REQUESTS as usize);
-    let mut results = Vec::with_capacity(NUM_CONCURRENT_REQUESTS as usize);
+    let prepared_statement = session.prepare(INSERT_QUERY).await?;
 
     for i in 0..NUM_CONCURRENT_REQUESTS {
         let key: &str = &(i.to_string());
         println!("key ={:?}", key);
-        let mut statement = Statement::new(INSERT_QUERY, 2);
+        let mut statement = prepared_statement.bind();
         statement.bind(0, key)?;
         statement.bind(1, key)?;
-        let future = session.execute(&statement);
+        let future = statement.execute();
         futures.push(future);
     }
 
-    while !futures.is_empty() {
-        results.push(futures.pop());
-    }
-    Ok(results)
+    futures::future::try_join_all(futures).await?;
+
+    Ok(())
 }
 
-fn select_from_paging(session: &Session) -> Result<Vec<(String, String)>> {
+async fn select_from_paging(session: &Session) -> Result<Vec<(String, String)>> {
     let mut has_more_pages = true;
-    let mut statement = Statement::new(SELECT_QUERY, 0);
-    statement.set_paging_size(PAGE_SIZE).unwrap();
     let mut res = vec![];
+    let mut prev_result = None;
 
     // FIXME must understand statement lifetime better for paging
     while has_more_pages {
-        let result = session.execute(&statement).wait()?;
+        let mut statement = session.statement(SELECT_QUERY);
+        statement.set_paging_size(PAGE_SIZE)?;
+        if let Some(result) = prev_result.take() {
+            statement.set_paging_state(result)?;
+        }
+
+        let result = statement.execute().await?;
         println!("{:?}", result);
         for row in result.iter() {
             match row.get_column(0)?.get_string() {
@@ -57,27 +59,26 @@ fn select_from_paging(session: &Session) -> Result<Vec<(String, String)>> {
         }
         has_more_pages = result.has_more_pages();
         if has_more_pages {
-            statement.set_paging_state(result)?;
+            prev_result = Some(result);
         }
     }
     Ok(res)
 }
 
-#[test]
-fn test_paging() {
+#[tokio::test]
+async fn test_paging() -> Result<()> {
     // let uuid_gen = &mut UuidGen::new();
 
-    let session = help::create_test_session();
-    help::create_example_keyspace(&session);
+    let session = help::create_test_session().await;
+    help::create_example_keyspace(&session).await;
 
-    session.execute(&stmt!(CREATE_TABLE)).wait().unwrap();
-    session.execute(&stmt!("USE examples")).wait().unwrap();
-    let results = insert_into_paging(&session /* , uuid_gen */).unwrap();
-    for result in results {
-        print!("{:?}", result.unwrap().wait().unwrap());
-    }
-    let mut results: Vec<(String, String)> = select_from_paging(&session).unwrap();
+    session.execute(CREATE_TABLE).await?;
+    session.execute("USE examples").await?;
+    insert_into_paging(&session /* , uuid_gen */).await?;
+    let mut results: Vec<(String, String)> = select_from_paging(&session).await?;
     results.sort_by_key(|kv| kv.0.clone());
     results.dedup_by_key(|kv| kv.0.clone());
     assert_eq!(results.len(), NUM_CONCURRENT_REQUESTS);
+
+    Ok(())
 }

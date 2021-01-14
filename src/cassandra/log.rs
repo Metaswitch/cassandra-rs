@@ -1,7 +1,7 @@
 use crate::cassandra_sys::CassLogLevel_;
 use crate::cassandra_sys::CassLogMessage;
 // use cassandra_sys::cass_log_cleanup; @deprecated
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::ProtectedInner;
 use crate::cassandra_sys::cass_log_set_callback;
 use crate::cassandra_sys::cass_log_set_level;
 use crate::cassandra_sys::CassLogCallback;

@@ -5,7 +5,7 @@
 use crate::cassandra::data_type::ConstDataType;
 use crate::cassandra::error::*;
 use crate::cassandra::row::Row;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra::value::ValueType;
 
 use crate::cassandra_sys::cass_false;
@@ -43,10 +43,13 @@ pub struct CassResult(*const _CassResult);
 unsafe impl Sync for CassResult {}
 unsafe impl Send for CassResult {}
 
-impl Protected<*const _CassResult> for CassResult {
+impl ProtectedInner<*const _CassResult> for CassResult {
     fn inner(&self) -> *const _CassResult {
         self.0
     }
+}
+
+impl Protected<*const _CassResult> for CassResult {
     fn build(inner: *const _CassResult) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

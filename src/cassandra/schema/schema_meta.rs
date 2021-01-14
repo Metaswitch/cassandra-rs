@@ -1,7 +1,7 @@
 use crate::cassandra::iterator::KeyspaceIterator;
 
 use crate::cassandra::schema::keyspace_meta::KeyspaceMeta;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra_sys::cass_iterator_keyspaces_from_schema_meta;
 use crate::cassandra_sys::cass_schema_meta_free;
 use crate::cassandra_sys::cass_schema_meta_keyspace_by_name_n;
@@ -21,10 +21,13 @@ impl Drop for SchemaMeta {
     }
 }
 
-impl Protected<*const _CassSchemaMeta> for SchemaMeta {
+impl ProtectedInner<*const _CassSchemaMeta> for SchemaMeta {
     fn inner(&self) -> *const _CassSchemaMeta {
         self.0
     }
+}
+
+impl Protected<*const _CassSchemaMeta> for SchemaMeta {
     fn build(inner: *const _CassSchemaMeta) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

@@ -8,7 +8,7 @@ use crate::cassandra::schema::aggregate_meta::AggregateMeta;
 
 use crate::cassandra::schema::function_meta::FunctionMeta;
 use crate::cassandra::schema::table_meta::TableMeta;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 
 use crate::cassandra_sys::cass_iterator_aggregates_from_keyspace_meta;
 use crate::cassandra_sys::cass_iterator_fields_from_keyspace_meta;
@@ -32,10 +32,13 @@ use std::os::raw::c_char;
 #[derive(Debug)]
 pub struct KeyspaceMeta(*const _CassKeyspaceMeta);
 
-impl Protected<*const _CassKeyspaceMeta> for KeyspaceMeta {
+impl ProtectedInner<*const _CassKeyspaceMeta> for KeyspaceMeta {
     fn inner(&self) -> *const _CassKeyspaceMeta {
         self.0
     }
+}
+
+impl Protected<*const _CassKeyspaceMeta> for KeyspaceMeta {
     fn build(inner: *const _CassKeyspaceMeta) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

@@ -1,4 +1,4 @@
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 
 use crate::cassandra_sys::cass_time_from_epoch;
 use crate::cassandra_sys::cass_timestamp_gen_free;
@@ -16,10 +16,13 @@ pub struct TimestampGen(*mut _TimestampGen);
 unsafe impl Send for TimestampGen {}
 unsafe impl Sync for TimestampGen {}
 
-impl Protected<*mut _TimestampGen> for TimestampGen {
+impl ProtectedInner<*mut _TimestampGen> for TimestampGen {
     fn inner(&self) -> *mut _TimestampGen {
         self.0
     }
+}
+
+impl Protected<*mut _TimestampGen> for TimestampGen {
     fn build(inner: *mut _TimestampGen) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

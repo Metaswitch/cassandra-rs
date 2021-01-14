@@ -2,7 +2,7 @@ use crate::cassandra::data_type::ConstDataType;
 use crate::cassandra::iterator::FieldIterator;
 
 use crate::cassandra::schema::function_meta::FunctionMeta;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra::value::Value;
 
 use crate::cassandra_sys::cass_aggregate_meta_argument_count;
@@ -25,10 +25,13 @@ use std::os::raw::c_char;
 #[derive(Debug)]
 pub struct AggregateMeta(*const _CassAggregateMeta);
 
-impl Protected<*const _CassAggregateMeta> for AggregateMeta {
+impl ProtectedInner<*const _CassAggregateMeta> for AggregateMeta {
     fn inner(&self) -> *const _CassAggregateMeta {
         self.0
     }
+}
+
+impl Protected<*const _CassAggregateMeta> for AggregateMeta {
     fn build(inner: *const _CassAggregateMeta) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

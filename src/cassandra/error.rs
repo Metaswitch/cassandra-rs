@@ -1,5 +1,5 @@
 use crate::cassandra::consistency::Consistency;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra::value::ValueType;
 use crate::cassandra::write_type::WriteType;
 
@@ -20,6 +20,7 @@ use crate::cassandra_sys::{
     cass_error_result_responses_required, cass_error_result_table, cass_error_result_write_type,
 };
 use crate::cassandra_sys::{cass_false, cass_true};
+use crate::Session;
 
 use std::error::Error as IError;
 use std::ffi::{CStr, CString};
@@ -42,6 +43,12 @@ error_chain! {
         CassError(code: CassErrorCode, msg: String) {
             description("Cassandra error")
             display("Cassandra error {:?}: {}", &code, &msg)
+        }
+
+        /// Errors that happen when an invalid session is passed to a batch.
+        BatchSessionMismatch(batch_session: Session, statement_session: Session) {
+            description("Batch cannot add a statement belonging to another session.")
+            display("Batch's session {:?} != {:?}", &batch_session, &statement_session)
         }
 
         /// Cassandra error result with extended information.

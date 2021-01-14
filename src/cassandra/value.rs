@@ -4,7 +4,7 @@ use crate::cassandra::inet::Inet;
 use crate::cassandra::iterator::MapIterator;
 use crate::cassandra::iterator::SetIterator;
 use crate::cassandra::iterator::UserTypeIterator;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra::uuid::Uuid;
 
 use crate::cassandra_sys::cass_collection_append_decimal;
@@ -146,10 +146,13 @@ pub struct Value(*const _CassValue);
 unsafe impl Send for Value {}
 unsafe impl Sync for Value {}
 
-impl Protected<*const _CassValue> for Value {
+impl ProtectedInner<*const _CassValue> for Value {
     fn inner(&self) -> *const _CassValue {
         self.0
     }
+}
+
+impl Protected<*const _CassValue> for Value {
     fn build(inner: *const _CassValue) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

@@ -6,7 +6,7 @@ use crate::cassandra::schema::column_meta::ColumnMeta;
 use crate::cassandra::schema::function_meta::FunctionMeta;
 use crate::cassandra::schema::keyspace_meta::KeyspaceMeta;
 use crate::cassandra::schema::table_meta::TableMeta;
-use crate::cassandra::util::Protected;
+use crate::cassandra::util::{Protected, ProtectedInner};
 use crate::cassandra::value::Value;
 
 // use cassandra_sys::CassIteratorType as _CassIteratorType;
@@ -233,10 +233,13 @@ impl Iterator for FieldIterator {
 //    }
 // }
 
-impl Protected<*mut _CassIterator> for UserTypeIterator {
+impl ProtectedInner<*mut _CassIterator> for UserTypeIterator {
     fn inner(&self) -> *mut _CassIterator {
         self.0
     }
+}
+
+impl Protected<*mut _CassIterator> for UserTypeIterator {
     fn build(inner: *mut _CassIterator) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
@@ -245,10 +248,13 @@ impl Protected<*mut _CassIterator> for UserTypeIterator {
     }
 }
 
-impl Protected<*mut _CassIterator> for AggregateIterator {
+impl ProtectedInner<*mut _CassIterator> for AggregateIterator {
     fn inner(&self) -> *mut _CassIterator {
         self.0
     }
+}
+
+impl Protected<*mut _CassIterator> for AggregateIterator {
     fn build(inner: *mut _CassIterator) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
@@ -257,10 +263,13 @@ impl Protected<*mut _CassIterator> for AggregateIterator {
     }
 }
 
-impl Protected<*mut _CassIterator> for FunctionIterator {
+impl ProtectedInner<*mut _CassIterator> for FunctionIterator {
     fn inner(&self) -> *mut _CassIterator {
         self.0
     }
+}
+
+impl Protected<*mut _CassIterator> for FunctionIterator {
     fn build(inner: *mut _CassIterator) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
@@ -269,10 +278,13 @@ impl Protected<*mut _CassIterator> for FunctionIterator {
     }
 }
 
-impl Protected<*mut _CassIterator> for KeyspaceIterator {
+impl ProtectedInner<*mut _CassIterator> for KeyspaceIterator {
     fn inner(&self) -> *mut _CassIterator {
         self.0
     }
+}
+
+impl Protected<*mut _CassIterator> for KeyspaceIterator {
     fn build(inner: *mut _CassIterator) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
@@ -281,10 +293,12 @@ impl Protected<*mut _CassIterator> for KeyspaceIterator {
     }
 }
 
-impl Protected<*mut _CassIterator> for FieldIterator {
+impl ProtectedInner<*mut _CassIterator> for FieldIterator {
     fn inner(&self) -> *mut _CassIterator {
         self.0
     }
+}
+impl Protected<*mut _CassIterator> for FieldIterator {
     fn build(inner: *mut _CassIterator) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
@@ -293,10 +307,13 @@ impl Protected<*mut _CassIterator> for FieldIterator {
     }
 }
 
-impl Protected<*mut _CassIterator> for ColumnIterator {
+impl ProtectedInner<*mut _CassIterator> for ColumnIterator {
     fn inner(&self) -> *mut _CassIterator {
         self.0
     }
+}
+
+impl Protected<*mut _CassIterator> for ColumnIterator {
     fn build(inner: *mut _CassIterator) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
@@ -305,10 +322,13 @@ impl Protected<*mut _CassIterator> for ColumnIterator {
     }
 }
 
-impl Protected<*mut _CassIterator> for TableIterator {
+impl ProtectedInner<*mut _CassIterator> for TableIterator {
     fn inner(&self) -> *mut _CassIterator {
         self.0
     }
+}
+
+impl Protected<*mut _CassIterator> for TableIterator {
     fn build(inner: *mut _CassIterator) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
@@ -317,10 +337,13 @@ impl Protected<*mut _CassIterator> for TableIterator {
     }
 }
 
-impl Protected<*mut _CassIterator> for MapIterator {
+impl ProtectedInner<*mut _CassIterator> for MapIterator {
     fn inner(&self) -> *mut _CassIterator {
         self.0
     }
+}
+
+impl Protected<*mut _CassIterator> for MapIterator {
     fn build(inner: *mut _CassIterator) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")
@@ -329,10 +352,13 @@ impl Protected<*mut _CassIterator> for MapIterator {
     }
 }
 
-impl Protected<*mut _CassIterator> for SetIterator {
+impl ProtectedInner<*mut _CassIterator> for SetIterator {
     fn inner(&self) -> *mut _CassIterator {
         self.0
     }
+}
+
+impl Protected<*mut _CassIterator> for SetIterator {
     fn build(inner: *mut _CassIterator) -> Self {
         if inner.is_null() {
             panic!("Unexpected null pointer")

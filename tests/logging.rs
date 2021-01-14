@@ -33,8 +33,8 @@ impl Drain for MyDrain {
     }
 }
 
-#[test]
-fn test_logging() {
+#[tokio::test]
+async fn test_logging() {
     let drain = MyDrain::default();
     let logger = Logger::root(drain.clone().fuse(), o!());
 
@@ -45,7 +45,7 @@ fn test_logging() {
     cluster
         .set_contact_points("absolute-gibberish.invalid")
         .unwrap();
-    cluster.connect().expect_err("Should fail to connect");
+    cluster.connect().await.expect_err("Should fail to connect");
 
     let log_output: String = drain.0.lock().unwrap().clone();
     assert!(
@@ -54,35 +54,29 @@ fn test_logging() {
     );
 }
 
-#[test]
-fn test_metrics() {
+#[tokio::test]
+async fn test_metrics() {
     // This is just a check that metrics work and actually notice requests.
     // Need to send a cassandra query that will produce a positive number for the min_us metric
     // (minimum time to respond to a request in microseconds), i.e. a request that make cassandra
     // take more than 1 microsecond to respond to. Do a couple of setup queries, with IF NOT EXISTS
     // so that they don't fail if this test is repeated.
-    let query1 = stmt!(
-        "CREATE KEYSPACE IF NOT EXISTS cycling WITH REPLICATION = {
+    let query1 = "CREATE KEYSPACE IF NOT EXISTS cycling WITH REPLICATION = {
                       'class' : 'SimpleStrategy',
                       'replication_factor' : 1
-                      };"
-    );
-    let query2 = stmt!(
-        "CREATE TABLE IF NOT EXISTS cycling.cyclist_name (
+                      };";
+    let query2 = "CREATE TABLE IF NOT EXISTS cycling.cyclist_name (
                        id UUID PRIMARY KEY,
                        lastname text,
-                       firstname text );"
-    ); //create table
-    let query3 = stmt!(
-        "INSERT INTO cycling.cyclist_name (id, lastname, firstname)
+                       firstname text );"; //create table
+    let query3 = "INSERT INTO cycling.cyclist_name (id, lastname, firstname)
                        VALUES (6ab09bec-e68e-48d9-a5f8-97e6fb4c9b47, 'KRUIKSWIJK','Steven')
-                       USING TTL 86400 AND TIMESTAMP 123456789;"
-    );
+                       USING TTL 86400 AND TIMESTAMP 123456789;";
 
-    let session = help::create_test_session();
-    session.execute(&query1).wait().unwrap();
-    session.execute(&query2).wait().unwrap();
-    session.execute(&query3).wait().unwrap();
+    let session = help::create_test_session().await;
+    session.execute(&query1).await.unwrap();
+    session.execute(&query2).await.unwrap();
+    session.execute(&query3).await.unwrap();
 
     let metrics = session.get_metrics();
     assert_eq!(metrics.total_connections, 1);
